@@ -156,6 +156,7 @@ Confidence intervals come from a bootstrap over time blocks: the unit of resampl
 pip install -e .                 # installs scada-schema from PyPI
 scada-fault-bench list
 scada-fault-bench prepare --datasets kelmarsh_2019 pvdaq_34 --fetch      # builds data/<name>.parquet with scada-schema
+scada-fault-bench prepare --datasets care_A --fetch                      # the 22 CARE datasets of farm A (real faults)
 scada-fault-bench run --datasets kelmarsh_2019 --folds 0 1 --out results
 scada-fault-bench summarise --out results
 ```
