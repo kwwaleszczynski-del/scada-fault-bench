@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "scada-fault-bench: an open benchmark for fault detection in wind and PV SCADA data"
+abstract: >-
+  Faults with a known time, device and size are injected into clean stretches of open wind and PV datasets in the scada-schema
+  format; detectors are scored by one evaluation (events, delay, false alarms, sensitivity to fault size) with block-bootstrap
+  confidence intervals, and on real labelled faults of CARE to Compare. The injected faults are a signal-level model; results
+  describe this benchmark only.
+authors:
+  - family-names: "Waleszczyński"
+    given-names: "Konrad"
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/kwwaleszczynski-del/scada-fault-bench"
+url: "https://kwwaleszczynski-del.github.io/scada-fault-bench/"
+keywords:
+  - SCADA
+  - wind energy
+  - photovoltaics
+  - fault detection
+  - anomaly detection
+  - benchmark
+  - open data
+references:
+  - type: software
+    title: "scada-schema: an open data standard for wind and PV SCADA"
+    authors:
+      - family-names: "Waleszczyński"
+        given-names: "Konrad"
+    repository-code: "https://github.com/kwwaleszczynski-del/scada-schema"

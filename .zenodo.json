@@ -1,0 +1,18 @@
+{
+  "title": "scada-fault-bench: an open benchmark for fault detection in wind and PV SCADA data",
+  "upload_type": "software",
+  "description": "<p>Faults with a known time, device and size are injected into clean stretches of open wind and PV datasets in the scada-schema format (Kelmarsh, Penmanshiel, Hill of Towie, NREL PVDAQ); detectors are scored by one evaluation (event and row metrics, detection delay, false alarm hours per year, sensitivity to the size of the fault) with block-bootstrap confidence intervals, and on real labelled faults of CARE to Compare. Simple baselines and reference methods from other repositories are included. The injected faults are a signal-level model, not recorded failures; the results describe this benchmark only. The package does not redistribute the datasets; CARE to Compare is licensed CC BY-SA 4.0.</p><p>Project page: https://kwwaleszczynski-del.github.io/scada-fault-bench/</p>",
+  "creators": [{"name": "Waleszczyński, Konrad"}],
+  "license": "MIT",
+  "access_right": "open",
+  "keywords": ["SCADA", "wind energy", "photovoltaics", "fault detection", "anomaly detection", "benchmark", "open data"],
+  "related_identifiers": [
+    {"identifier": "https://kwwaleszczynski-del.github.io/scada-fault-bench/", "relation": "isDocumentedBy", "scheme": "url"},
+    {"identifier": "https://github.com/kwwaleszczynski-del/scada-fault-bench", "relation": "isSupplementTo", "scheme": "url"},
+    {"identifier": "https://pypi.org/project/scada-schema/", "relation": "requires", "scheme": "url"},
+    {"identifier": "10.5281/zenodo.5841833", "relation": "references", "scheme": "doi"},
+    {"identifier": "10.5281/zenodo.5946807", "relation": "references", "scheme": "doi"},
+    {"identifier": "10.5281/zenodo.14870021", "relation": "references", "scheme": "doi"},
+    {"identifier": "10.5281/zenodo.15846963", "relation": "references", "scheme": "doi"}
+  ]
+}

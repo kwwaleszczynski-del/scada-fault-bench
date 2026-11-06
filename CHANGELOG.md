@@ -1,0 +1,17 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [semantic versioning](https://semver.org/).
+
+## [0.1.0] - unreleased
+
+First release.
+
+### Added
+
+- Deterministic fault injection with known ground truth on tables of the `scada-schema` format: 12 fault types (8 for wind, 8 for PV), five sizes each, truth with start, end, device and size.
+- One interface for detectors (`fit` and `score`), alarm rules shared by all methods, and an evaluation with event and row metrics, detection delay, false alarm hours per year, AUROC, average precision, recall by fault size and block-bootstrap confidence intervals.
+- Simple baselines (rules, `scada-schema` quality control, robust z-score, EWMA, CUSUM, Isolation Forest) and reference methods from other repositories of the portfolio (`wind-thermal-nbm`, `res-asset-kpi`, `pv-anomaly-autoencoder`, `pv-outage-classifier`).
+- A part with real labelled faults (CARE to Compare, farm A).
+- Command line (`list`, `prepare`, `inject`, `run`, `summarise`), README and project page generated from `results/summary.json`, tests, CI on Linux and Windows.
+
+[0.1.0]: https://github.com/kwwaleszczynski-del/scada-fault-bench/releases/tag/v0.1.0

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scada-fault-bench</title>
+<meta name="description" content="An open benchmark for fault detection in wind and PV SCADA data: injected faults with known ground truth on open datasets, one evaluation, block-bootstrap confidence intervals.">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"
+  integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous"></script>
+<script src="data.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #6f6d67;
+  --grid: #e1e0d9; --border: rgba(11,11,11,0.10); --accent: #2a78d6; --accent-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --border: rgba(255,255,255,0.10); --accent: #3987e5; --accent-ink: #0d0d0d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --border: rgba(255,255,255,0.10); --accent: #3987e5; --accent-ink: #0d0d0d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { margin: 34px 0 0; font-size: 20px; }
+h3 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 4px 0 12px; color: var(--ink2); }
+a { color: var(--accent); }
+code { font-size: 0.9em; }
+.lead { max-width: 900px; }
+.note { font-size: 12.5px; color: var(--muted); }
+.caveat { border-left: 3px solid var(--accent); padding: 4px 12px; margin: 12px 0; background: var(--surface); border-radius: 0 8px 8px 0; max-width: 900px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0 8px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .label { font-size: 13px; color: var(--ink2); }
+.tile .value { font-size: 24px; font-weight: 600; margin: 2px 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px 8px; min-width: 0; margin-top: 14px; }
+.chart { width: 100%; height: 380px; }
+.chart.tall { height: 460px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 12px 0 4px; font-size: 13px; color: var(--ink2); }
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+select, button.theme { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font: inherit; max-width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { background: transparent; color: var(--ink2); border: 0; padding: 4px 12px; font: inherit; cursor: pointer; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 5px 8px; border-bottom: 1px solid var(--grid); text-align: right; vertical-align: top; white-space: nowrap; }
+th { color: var(--ink2); font-weight: 600; cursor: pointer; user-select: none; }
+th.sorted::after { content: attr(data-arrow); }
+th:first-child, td:first-child, td.l, th.l { text-align: left; }
+td.l { white-space: normal; min-width: 220px; }
+td .ci { color: var(--muted); font-size: 11.5px; }
+.fam { font-size: 11px; color: var(--muted); }
+dl { margin: 8px 0; } dt { font-weight: 600; margin-top: 8px; } dd { margin: 2px 0 0; color: var(--ink2); }
+footer { margin-top: 40px; font-size: 12.5px; color: var(--muted); }
+@media (max-width: 520px) { h1 { font-size: 22px; } .chart { height: 360px; } .chart.tall { height: 440px; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>scada-fault-bench</h1>
+    <p class="lead">An open benchmark for fault detection in wind and PV SCADA data. Faults with a known time, device and size are injected into clean stretches of open datasets; every method is scored by the same evaluation, with block-bootstrap confidence intervals. <a href="https://github.com/kwwaleszczynski-del/scada-fault-bench">Code and README</a>.</p>
+  </div>
+  <button class="theme" id="theme" type="button" aria-label="Switch between light and dark theme">Theme</button>
+</header>
+<div class="caveat"><p style="margin:0">The injected faults are a signal-level model, not recorded failures, and the intervals only describe the sampling inside this benchmark. A result here does not show that a method is better in general. See the limitations in the README.</p></div>
+<div class="tiles" id="tiles"></div>
+
+<h2>Results</h2>
+<div class="controls" id="controls">
+  <span class="seg" id="profile"></span>
+  <label>Dataset <select id="dataset"></select></label>
+  <label>Fault type <select id="type"></select></label>
+</div>
+<p class="note" id="selnote"></p>
+<div class="card"><div class="wrap"><table id="results"></table></div>
+<p class="note">Values with 95 % intervals (block bootstrap over weeks of the test blocks). F1, recall and precision are per event and alarm; the delay is the mean over detected events; the false alarm rate is in hours per year of healthy time (a calibrated method aims at the same budget). Click a header to sort. n/a: no event, or no alarm.</p></div>
+
+<h2>Sensitivity to the size of the fault</h2>
+<div class="controls"><label>Fault type <select id="senstype"></select></label></div>
+<div class="card"><div id="sens" class="chart tall"></div>
+<p class="note">Share of the injected events of each of the five sizes that were detected (selection of profile and dataset above). Bars: 95 % interval.</p></div>
+
+<h2>Recall by fault type</h2>
+<div class="card"><div id="heat" class="chart tall"></div></div>
+
+<h2>Recall against false alarms</h2>
+<div class="card"><div id="scatter" class="chart tall"></div>
+<p class="note">One point per method for the selection above; bars: 95 % intervals. Calibrated methods aim at the same false alarm budget, rule-based ones do not.</p></div>
+
+<h2>Real faults: CARE to Compare, farm A</h2>
+<div class="card"><div class="wrap"><table id="real"></table></div><p class="note" id="realnote"></p></div>
+
+<h2>Methods and faults</h2>
+<div class="card"><h3>Methods</h3><dl id="methods"></dl></div>
+<div class="card"><h3>Fault types</h3><dl id="faults"></dl></div>
+<footer>Generated from <code>results/summary.json</code> by <code>scripts/build_pages.py</code>. Data: Kelmarsh, Penmanshiel, Hill of Towie, NREL PVDAQ (CC BY 4.0), CARE to Compare (CC BY-SA 4.0).</footer>
+</main>
+<script>
+(function () {
+  const D = window.DATA, N = D.numbers;
+  const $ = id => document.getElementById(id);
+  const S = { profile: 'wind', dataset: 'all', type: 'all', senstype: null, sort: 'f1', dir: -1 };
+  const COLS = [['f1', 'F1', 2], ['recall', 'Recall', 2], ['precision', 'Precision', 2], ['delay_h', 'Delay (h)', 0], ['fa_h_per_year', 'False alarms (h/yr)', 0], ['auroc', 'AUROC', 2], ['ap', 'AP', 2]];
+  const PAL = ['#2a78d6', '#eb6834', '#1baf7a', '#a45bd1', '#c79a10', '#c0504d', '#3aa7cf', '#7a8b2e', '#8a8a8a'];
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const narrow = () => window.innerWidth < 560;
+
+  function methodsOf(profile) { return D.order.methods.filter(m => D.methods[m].profiles.includes(profile)); }
+  function typesOf(profile) { return D.order.types.filter(t => D.fault_types[t].profiles.includes(profile)); }
+  function datasetsOf(profile) { return D.order.datasets.filter(d => D.datasets_info[d].profile === profile); }
+  function entries() {
+    const p = S.profile, d = S.dataset, t = S.type, out = {};
+    let src;
+    if (d === 'all' && t === 'all') src = D.overall.filter(e => e.profile === p);
+    else if (d === 'all') src = D.types.filter(e => e.profile === p && e.type === t);
+    else if (t === 'all') src = D.datasets.filter(e => e.dataset === d);
+    else src = D.cells.filter(e => e.dataset === d && e.type === t);
+    src.forEach(e => { out[e.method] = e; });
+    return out;
+  }
+  function fmt(m, nd) {
+    if (m.value === null) return 'n/a';
+    const v = m.value.toFixed(nd);
+    return m.lo === null ? v : v + ' <span class="ci">(' + m.lo.toFixed(nd) + '-' + m.hi.toFixed(nd) + ')</span>';
+  }
+
+  function tiles() {
+    const items = [['Injected faults', N.n_events], ['Methods', N.n_methods], ['Datasets', N.n_datasets], ['Fault types', N.n_types], ['Real labelled anomalies', N.n_real_anomalies]];
+    $('tiles').innerHTML = items.map(i => '<div class="tile"><div class="label">' + i[0] + '</div><div class="value">' + esc(i[1]) + '</div></div>').join('');
+  }
+
+  function controls() {
+    $('profile').innerHTML = ['wind', 'pv'].map(p => '<button type="button" data-p="' + p + '">' + (p === 'wind' ? 'Wind' : 'PV') + '</button>').join('');
+    $('profile').onclick = e => { if (e.target.dataset.p) { S.profile = e.target.dataset.p; S.dataset = 'all'; S.type = 'all'; S.senstype = null; fill(); draw(); } };
+    $('dataset').onchange = e => { S.dataset = e.target.value; draw(); };
+    $('type').onchange = e => { S.type = e.target.value; draw(); };
+    $('senstype').onchange = e => { S.senstype = e.target.value; sens(); };
+  }
+  function fill() {
+    document.querySelectorAll('#profile button').forEach(b => b.classList.toggle('on', b.dataset.p === S.profile));
+    $('dataset').innerHTML = '<option value="all">all datasets</option>' + datasetsOf(S.profile).map(d => '<option value="' + d + '">' + esc(D.datasets_info[d].title) + '</option>').join('');
+    $('type').innerHTML = '<option value="all">all fault types</option>' + typesOf(S.profile).map(t => '<option value="' + t + '">' + esc(D.titles[t]) + '</option>').join('');
+    S.senstype = S.senstype || typesOf(S.profile)[0];
+    $('senstype').innerHTML = typesOf(S.profile).map(t => '<option value="' + t + '">' + esc(D.titles[t]) + '</option>').join('');
+    $('dataset').value = S.dataset; $('type').value = S.type; $('senstype').value = S.senstype;
+  }
+
+  function table() {
+    const ent = entries();
+    const rows = methodsOf(S.profile).filter(m => ent[m]);
+    const key = S.sort;
+    rows.sort((a, b) => {
+      const va = ent[a][key].value, vb = ent[b][key].value;
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      return S.dir * (va - vb);
+    });
+    const head = '<tr><th class="l" data-k="method">Method</th>' + COLS.map(c => '<th data-k="' + c[0] + '" class="' + (S.sort === c[0] ? 'sorted' : '') + '" data-arrow="' + (S.dir < 0 ? ' ▼' : ' ▲') + '">' + c[1] + '</th>').join('') + '</tr>';
+    const body = rows.map(m => '<tr><td class="l">' + esc(D.methods[m].title) + ' <span class="fam">' + esc(m) + ' &middot; ' + D.methods[m].family + (D.methods[m].fixed_threshold ? ' &middot; fixed threshold' : '') + '</span></td>' +
+      COLS.map(c => '<td>' + fmt(ent[m][c[0]], c[2]) + '</td>').join('') + '</tr>').join('');
+    $('results').innerHTML = head + body;
+    $('results').querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; if (k === 'method') return; if (S.sort === k) S.dir = -S.dir; else { S.sort = k; S.dir = k === 'delay_h' || k === 'fa_h_per_year' ? 1 : -1; } table(); });
+    const d = S.dataset === 'all' ? 'all ' + datasetsOf(S.profile).length + ' datasets' : D.datasets_info[S.dataset].title;
+    const t = S.type === 'all' ? 'all fault types' : D.titles[S.type];
+    $('selnote').textContent = (S.profile === 'wind' ? 'Wind farms' : 'PV systems') + ', ' + d + ', ' + t + '.';
+  }
+
+  function layout(extra) {
+    const ink = css('--ink2'), grid = css('--grid');
+    return Object.assign({
+      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: ink, size: narrow() ? 11 : 12 },
+      margin: { l: narrow() ? 44 : 56, r: 12, t: 12, b: 48 }, xaxis: { gridcolor: grid, zerolinecolor: grid, automargin: true }, yaxis: { gridcolor: grid, zerolinecolor: grid, automargin: true },
+      legend: { orientation: 'h', y: -0.28, yanchor: 'top', x: 0, font: { size: narrow() ? 10 : 11 } },
+    }, extra || {});
+  }
+  const CFG = { responsive: true, displaylogo: false, displayModeBar: false };
+
+  function sens() {
+    const t = S.senstype, ms = methodsOf(S.profile);
+    const lv = D.levels[t], unit = lv.unit;
+    const src = S.dataset === 'all' ? D.types.filter(e => e.profile === S.profile && e.type === t) : D.cells.filter(e => e.dataset === S.dataset && e.type === t);
+    const byM = {}; src.forEach(e => { byM[e.method] = e; });
+    const x = lv.levels.map(v => v);
+    const traces = [];
+    ms.forEach((m, i) => {
+      const e = byM[m]; if (!e) return;
+      const ks = [1, 2, 3, 4, 5].map(k => e['recall_l' + k]);
+      traces.push({ type: 'scatter', mode: 'lines+markers', name: m, x: x, y: ks.map(k => k.value),
+        error_y: { type: 'data', symmetric: false, array: ks.map(k => k.value === null ? 0 : k.hi - k.value), arrayminus: ks.map(k => k.value === null ? 0 : k.value - k.lo), thickness: 1, width: 2 },
+        marker: { symbol: D.methods[m].family === 'portfolio' ? 'diamond' : 'circle', size: 7, color: PAL[i % PAL.length] }, line: { color: PAL[i % PAL.length], width: 1.5 }, connectgaps: false });
+    });
+    const xt = lv.kind === 'duration' ? 'duration of the fault (h)' : 'size of the fault (' + unit + ')';
+    Plotly.react('sens', traces, layout({ xaxis: { title: { text: xt }, type: 'category', gridcolor: css('--grid') }, yaxis: { title: { text: 'recall' }, range: [-0.05, 1.08], gridcolor: css('--grid'), zeroline: false },
+      legend: { orientation: 'h', y: -0.3, yanchor: 'top', x: 0, font: { size: narrow() ? 10 : 11 } } }), CFG);
+  }
+
+  function heat() {
+    const ms = methodsOf(S.profile), ts = typesOf(S.profile);
+    const src = S.dataset === 'all' ? D.types.filter(e => e.profile === S.profile) : D.cells.filter(e => e.dataset === S.dataset);
+    const get = {}; src.forEach(e => { get[e.method + '|' + e.type] = e; });
+    const z = ms.map(m => ts.map(t => { const e = get[m + '|' + t]; return e && e.recall.value !== null ? e.recall.value : null; }));
+    const text = z.map(r => r.map(v => v === null ? 'n/a' : v.toFixed(2)));
+    Plotly.react('heat', [{ type: 'heatmap', z: z, x: ts.map(t => D.titles[t]), y: ms, text: text, texttemplate: '%{text}', textfont: { size: narrow() ? 9 : 11 }, zmin: 0, zmax: 1, colorscale: [[0, css('--surface')], [1, '#2a78d6']], showscale: false, xgap: 2, ygap: 2, hoverongaps: false }],
+      layout({ margin: { l: narrow() ? 96 : 130, r: 8, t: 8, b: narrow() ? 150 : 90 }, xaxis: { tickangle: narrow() ? -90 : -35, automargin: true, side: 'bottom' }, yaxis: { autorange: 'reversed', automargin: true }, legend: { visible: false }, showlegend: false }), CFG);
+  }
+
+  function scatter() {
+    const ent = entries(), ms = methodsOf(S.profile).filter(m => ent[m] && ent[m].recall.value !== null);
+    const traces = ms.map((m, i) => {
+      const e = ent[m], fa = e.fa_h_per_year, rc = e.recall;
+      return { type: 'scatter', mode: 'markers', name: m, x: [fa.value], y: [rc.value],
+        error_x: { type: 'data', symmetric: false, array: [fa.hi - fa.value], arrayminus: [fa.value - fa.lo], thickness: 1, width: 2 },
+        error_y: { type: 'data', symmetric: false, array: [rc.hi - rc.value], arrayminus: [rc.value - rc.lo], thickness: 1, width: 2 },
+        marker: { symbol: D.methods[m].family === 'portfolio' ? 'diamond' : 'circle', size: 10, color: PAL[methodsOf(S.profile).indexOf(m) % PAL.length] } };
+    });
+    Plotly.react('scatter', traces, layout({ xaxis: { title: { text: 'false alarms (h per year of healthy time)' }, gridcolor: css('--grid'), rangemode: 'tozero' }, yaxis: { title: { text: 'recall' }, range: [-0.05, 1.08], gridcolor: css('--grid'), zeroline: false },
+      legend: { orientation: 'h', y: -0.3, yanchor: 'top', x: 0, font: { size: narrow() ? 10 : 11 } } }), CFG);
+  }
+
+  function real() {
+    const by = {}; D.real.forEach(e => { by[e.method] = e; });
+    const rows = methodsOf('wind').filter(m => by[m]);
+    $('real').innerHTML = '<tr><th class="l">Method</th>' + ['Recall', 'Precision', 'Delay (h)', 'False alarms (h/yr)', 'AUROC', 'AP'].map(c => '<th>' + c + '</th>').join('') + '</tr>' +
+      rows.map(m => '<tr><td class="l">' + esc(D.methods[m].title) + ' <span class="fam">' + esc(m) + '</span></td>' + [['recall', 2], ['precision', 2], ['delay_h', 0], ['fa_h_per_year', 0], ['auroc', 2], ['ap', 2]].map(c => '<td>' + fmt(by[m][c[0]], c[1]) + '</td>').join('') + '</tr>').join('');
+    $('realnote').textContent = N.n_real_anomalies + ' labelled anomalies and ' + N.n_real_normal + ' normal datasets of CARE farm A (single turbine tables, no fleet reference). Too few to rank methods; the intervals show how little this part can say.';
+  }
+
+  function lists() {
+    $('methods').innerHTML = D.order.methods.map(m => '<dt>' + esc(D.methods[m].title) + ' <code>' + esc(m) + '</code></dt><dd>' + esc(D.methods[m].description) + (D.methods[m].source ? ' <span class="note">Source: ' + esc(D.methods[m].source) + '</span>' : '') + '</dd>').join('');
+    $('faults').innerHTML = D.order.types.map(t => '<dt>' + esc(D.titles[t]) + ' <code>' + esc(t) + '</code> <span class="note">' + D.fault_types[t].profiles.join(' + ') + '</span></dt><dd>' + esc(D.fault_types[t].summary) + ' <span class="note">Levels: ' + D.fault_types[t].levels.join(', ') + ' ' + esc(D.fault_types[t].unit) + '</span></dd>').join('');
+  }
+
+  function draw() { table(); sens(); heat(); scatter(); }
+  function theme() {
+    const root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark'; draw();
+  }
+  $('theme').onclick = theme;
+  let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(draw, 150); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => draw());
+  tiles(); controls(); fill(); real(); lists(); draw();
+})();
+</script>
+</body>
+</html>
