@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scada-fault-bench"
+dynamic = ["version"]
+description = "An open benchmark for detecting faults in wind and PV SCADA data: injected faults with known ground truth on open datasets in the scada-schema format, one interface for detectors, one evaluation with block-bootstrap confidence intervals."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Konrad Waleszczyński" }]
+keywords = ["scada", "wind-energy", "photovoltaics", "fault-detection", "anomaly-detection", "benchmark", "scada-schema"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scikit-learn>=1.4",
+    "scipy>=1.11",
+    "scada-schema>=0.1.0",
+]
+
+[project.optional-dependencies]
+# methods from other repositories of the portfolio; none is on PyPI, so they are installed from GitHub (see README, "Reference methods")
+plots = ["matplotlib>=3.8"]
+dev = ["pytest>=8", "ruff>=0.6", "build>=1.2", "matplotlib>=3.8"]
+
+[project.scripts]
+scada-fault-bench = "scada_fault_bench.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kwwaleszczynski-del/scada-fault-bench"
+Documentation = "https://kwwaleszczynski-del.github.io/scada-fault-bench/"
+Issues = "https://github.com/kwwaleszczynski-del/scada-fault-bench/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "scada_fault_bench._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "data: needs the open datasets prepared on disk (SCADA_FAULT_BENCH_DATA); skipped otherwise",
+    "portfolio: needs a reference method from another portfolio repository; skipped when it is not importable",
+]
+
+[tool.ruff]
+line-length = 160
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "B905"]
