@@ -26,9 +26,9 @@ import numpy as np
 import pandas as pd
 
 from scada_fault_bench import __version__, baselines, portfolio  # noqa: F401 - the methods register themselves
-from scada_fault_bench.base import CAL_QUANTILE, FIXED_THRESHOLD, MERGE_GAP_HOURS, METHODS, MIN_ALARM_HOURS
+from scada_fault_bench.base import ALARM_BUDGET, FIXED_THRESHOLD, MERGE_GAP_HOURS, METHODS, MIN_ALARM_HOURS
 from scada_fault_bench.data import BUFFER_DAYS, DATASETS, TEST_DAYS
-from scada_fault_bench.evaluate import COLUMNS, TOLERANCE_DAYS
+from scada_fault_bench.evaluate import COLUMNS
 from scada_fault_bench.faults import FAULT_TYPES, GUARD_DAYS, LEVEL_COUNT, MIN_AFFECTED_HOURS
 from scada_fault_bench.real import REAL_NAME
 from scada_fault_bench.stats import METRICS, N_BOOT, bootstrap_metrics
@@ -36,6 +36,7 @@ from scada_fault_bench.stats import METRICS, N_BOOT, bootstrap_metrics
 __all__ = ["load_shards", "summarise", "write_summary"]
 
 SUMS = COLUMNS
+BLOCK_WEEKS = 4  # a block is four weeks: longer than most events (their windows are 1 to 3 weeks), so that one event is rarely split over blocks
 
 
 def load_shards(out: str | Path) -> dict[str, pd.DataFrame]:
@@ -53,7 +54,10 @@ def load_shards(out: str | Path) -> dict[str, pd.DataFrame]:
 
 def _entry(V: np.ndarray, n_boot: int, seed: int) -> dict:
     point, lo, hi = bootstrap_metrics(V, n_boot, seed)
-    return {k: {"value": _f(point[k]), "lo": _f(lo[k]), "hi": _f(hi[k])} for k in METRICS}
+    tot = V.sum(axis=0)
+    out = {k: {"value": _f(point[k]), "lo": _f(lo[k]), "hi": _f(hi[k])} for k in METRICS}
+    out["n"] = {"events": int(round(tot[COLUMNS.index("ev_n")])), "detected": int(round(tot[COLUMNS.index("ev_det")])), "blocks": int(len(V))}
+    return out
 
 
 def _f(x: float):
@@ -61,8 +65,9 @@ def _f(x: float):
 
 
 def _blocks_matrix(df: pd.DataFrame) -> np.ndarray:
-    """One row per (dataset, fold, week) block of the selection, summed over methods' seeds and fault types of the selection."""
-    g = df.groupby(["dataset", "fold", "week"], sort=True)[SUMS].sum()
+    """One row per bootstrap block of the selection: ``BLOCK_WEEKS`` consecutive weeks of one test block (dataset, fold), summed over
+    the seeds and fault types of the selection."""
+    g = df.groupby(["dataset", "fold", df["week"] // BLOCK_WEEKS], sort=True)[SUMS].sum()
     return g.to_numpy()
 
 
@@ -120,7 +125,8 @@ def summarise(out: str | Path, n_boot: int = N_BOOT, seed: int = 0) -> dict:
         S["real_events"] = [{"anomalies": int(len(rt)), "normal_datasets": n_norm}]
     S["levels"] = {t: {"levels": list(FAULT_TYPES[t].levels), "unit": FAULT_TYPES[t].unit, "kind": FAULT_TYPES[t].level_kind} for t in types_present}
     S["methods"] = {m: {"title": METHODS[m].title, "description": METHODS[m].description, "family": METHODS[m].family, "source": METHODS[m].source,
-                        "profiles": list(METHODS[m].profiles), "fixed_threshold": METHODS[m].fixed_threshold} for m in methods}
+                        "profiles": list(METHODS[m].profiles), "fixed_threshold": METHODS[m].fixed_threshold,
+                        "scope": list(METHODS[m].scope) if METHODS[m].scope else None} for m in methods}
     S["fault_types"] = {t: {"summary": FAULT_TYPES[t].summary, "profiles": list(FAULT_TYPES[t].profiles()), "unit": FAULT_TYPES[t].unit,
                             "levels": list(FAULT_TYPES[t].levels), "level_kind": FAULT_TYPES[t].level_kind} for t in types_present}
     S["datasets_info"] = {d: {"title": DATASETS[d].title, "profile": DATASETS[d].profile, "start": DATASETS[d].start, "end": DATASETS[d].end} for d in datasets}
@@ -135,9 +141,9 @@ def summarise(out: str | Path, n_boot: int = N_BOOT, seed: int = 0) -> dict:
     S["order"] = {"methods": methods, "types": types_present, "datasets": datasets}
     folds = sorted(int(x) for x in blocks["fold"].unique())
     S["config"] = {
-        "version": __version__, "n_boot": n_boot, "bootstrap_seed": seed, "folds": folds, "seeds": int(blocks["seed"].nunique()), "levels": LEVEL_COUNT,
-        "test_days": {"wind": TEST_DAYS, "pv": 150}, "buffer_days": BUFFER_DAYS, "cal_quantile": CAL_QUANTILE, "fixed_threshold": FIXED_THRESHOLD, "merge_gap_hours": MERGE_GAP_HOURS,
-        "min_alarm_hours": MIN_ALARM_HOURS, "tolerance_days": TOLERANCE_DAYS, "guard_days": GUARD_DAYS, "min_affected_hours": MIN_AFFECTED_HOURS,
+        "version": __version__, "n_boot": n_boot, "bootstrap_seed": seed, "folds": folds, "seeds_wind": int(blocks.loc[blocks["profile"] == "wind", "seed"].nunique()), "seeds_pv": int(blocks.loc[blocks["profile"] == "pv", "seed"].nunique()), "block_weeks": BLOCK_WEEKS, "levels": LEVEL_COUNT,
+        "test_days": {"wind": TEST_DAYS, "pv": 150}, "buffer_days": BUFFER_DAYS, "alarm_budget": ALARM_BUDGET, "fixed_threshold": FIXED_THRESHOLD, "merge_gap_hours": MERGE_GAP_HOURS,
+        "min_alarm_hours": MIN_ALARM_HOURS, "guard_days": GUARD_DAYS, "min_affected_hours": MIN_AFFECTED_HOURS,
         "n_events": int((truth["dataset"] != REAL_NAME).sum()) if len(truth) else 0, "python": platform.python_version(), "scada_schema": _version("scada_schema"), "pandas": pd.__version__, "numpy": np.__version__,
     }
     return S

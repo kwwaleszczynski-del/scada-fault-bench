@@ -6,10 +6,11 @@ the same data, is kept. A confidence interval is the 2.5 % and 97.5 % quantile o
 of the weeks of the selection; the point value is the metric on the original sums. Intervals only describe the sampling of
 weeks, devices and events inside this benchmark; they say nothing about how a method behaves on other plants.
 
-Metrics (``METRICS``): precision, recall and F1 of events and alarms (``precision``, ``recall``, ``f1``), the same on rows
+Metrics (``METRICS``): precision, recall and F1 of events and alarms (``precision``, ``recall``, ``f1``), the recall that the same
+alarms would reach by chance (``recall_placebo``, from the untouched test block) and the excess over it (``recall_excess``), the same on rows
 (``row_precision``, ``row_recall``, ``row_f1``), mean detection delay in hours, false alarm hours per year of healthy time,
-AUROC and average precision of the raw score on affected against healthy rows, and recall by fault level
-(``recall_l1`` .. ``recall_l5``).
+AUROC and average precision of the calibration rank of the score on affected against healthy rows, and recall and excess recall by
+fault level (``recall_l1`` .. ``recall_l5``, ``excess_l1`` ..).
 
 Usage:
     point, lo, hi = bootstrap_metrics(V, n_boot=1000, seed=0)     # V: (n_blocks, len(COLUMNS)) array of sums
@@ -27,8 +28,8 @@ __all__ = ["HOURS_PER_YEAR", "METRICS", "N_BOOT", "bootstrap_metrics", "metrics_
 N_BOOT = 1000
 HOURS_PER_YEAR = 8766.0
 IDX = {c: i for i, c in enumerate(COLUMNS)}
-METRICS = ["precision", "recall", "f1", "delay_h", "fa_h_per_year", "auroc", "ap", "row_precision", "row_recall", "row_f1",
-           *[f"recall_l{i}" for i in range(1, LEVEL_COUNT + 1)]]
+METRICS = ["precision", "recall", "recall_placebo", "recall_excess", "f1", "delay_h", "fa_h_per_year", "auroc", "ap", "row_precision", "row_recall", "row_f1",
+           *[f"recall_l{i}" for i in range(1, LEVEL_COUNT + 1)], *[f"excess_l{i}" for i in range(1, LEVEL_COUNT + 1)]]
 HP = slice(IDX["hp_0"], IDX["hp_0"] + HIST_BINS)
 HN = slice(IDX["hn_0"], IDX["hn_0"] + HIST_BINS)
 
@@ -64,8 +65,11 @@ def metrics_from_sums(T: np.ndarray) -> dict[str, np.ndarray]:
     tp, fp = np.cumsum(Pd, axis=1), np.cumsum(Nd, axis=1)
     precision_at = np.where((tp + fp) > 0, tp / np.where((tp + fp) > 0, tp + fp, 1.0), 1.0)
     out["ap"] = _div((Pd * precision_at).sum(axis=1), pt)
+    out["recall_placebo"] = _div(c("pl_det"), c("ev_n"))
+    out["recall_excess"] = rec - out["recall_placebo"]
     for i in range(1, LEVEL_COUNT + 1):
         out[f"recall_l{i}"] = _div(c(f"ev_det_l{i}"), c(f"ev_n_l{i}"))
+        out[f"excess_l{i}"] = out[f"recall_l{i}"] - _div(c(f"pl_det_l{i}"), c(f"ev_n_l{i}"))
     return out
 
 

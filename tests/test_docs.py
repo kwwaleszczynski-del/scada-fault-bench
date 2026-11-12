@@ -67,13 +67,21 @@ def test_the_summary_is_internally_consistent(summary):
     assert 0 < len(summary["cells"]) <= n_cells
     for e in summary["overall"] + summary["types"] + summary["cells"] + summary["datasets"] + summary["real"]:
         for k, m in e.items():
-            if isinstance(m, dict) and m["value"] is not None and m["lo"] is not None:
-                if k in ("precision", "recall", "f1", "auroc", "ap"):
+            if isinstance(m, dict) and m.get("value") is not None and m["lo"] is not None:
+                if k in ("precision", "recall", "recall_placebo", "f1", "auroc", "ap"):
                     assert -1e-9 <= m["lo"] <= m["hi"] <= 1 + 1e-9, (e["method"], k, m)
                     assert m["lo"] - 0.05 <= m["value"] <= m["hi"] + 0.05, (e["method"], k, m)  # the point value is inside its interval up to resampling noise
     assert len({d["dataset"] for d in summary["datasets"]}) >= 3
     assert len({t["type"] for t in summary["types"]}) >= 6
     assert not [r for r in summary["runs"] if r["errors"]], "a method failed in the committed run"
+    assert c["seeds_wind"] >= 1 and c["seeds_pv"] >= 1 and c["block_weeks"] >= 2 and 0 < c["alarm_budget"] < 0.1
+    for e in summary["overall"]:
+        assert e["n"]["events"] > 0 and e["recall_placebo"]["value"] is not None, e["method"]
+        assert abs(e["recall_excess"]["value"] - (e["recall"]["value"] - e["recall_placebo"]["value"])) < 1e-9
+    for m, info in summary["methods"].items():
+        if info["scope"]:
+            seen = {e["type"] for e in summary["types"] if e["method"] == m}
+            assert seen <= set(info["scope"]), (m, seen)
 
 
 def test_pages_data_is_built_from_the_summary(summary):

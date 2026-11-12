@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     common(s)
     s.add_argument("--datasets", nargs="+", choices=names, default=names)
     s.add_argument("--folds", nargs="+", type=int, default=[0, 1, 2, 3])
-    s.add_argument("--seeds", type=int, default=1)
+    s.add_argument("--seeds", type=int, default=None, help="injection seeds per fold (default: 1 for wind farms, 2 for PV plants)")
     s.add_argument("--repeats", type=int, default=None)
     s.add_argument("--methods", nargs="+", default=None)
     s.add_argument("--types", nargs="+", default=None)

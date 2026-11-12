@@ -66,8 +66,12 @@ def grey_mask(df: pd.DataFrame, meta: DatasetMeta) -> np.ndarray:
         inv = df["device_id"].isin([d.id for d in meta.devices if d.type == "inverter"]).to_numpy()
         rated = df["device_id"].map({d.id: (d.rated_kw or d.capacity_kwp or np.nan) for d in meta.devices}).to_numpy(dtype="float64")
         p = df["p_ac"].to_numpy(dtype="float64")
+        # (a whole calendar day, so that the rule differs from the one-hour rule of the "rules" method, which must not be hidden from its own false alarms)
         down = inv & ((np.isnan(p) & (sun >= DAYLIGHT_WM2)) | ((p < 0.02 * rated) & (sun > 300)))
-        g |= df["timestamp"].isin(df.loc[down, "timestamp"]).to_numpy()
+        day = df["timestamp"].dt.floor("D")
+        down_s, sunny_s = pd.Series(down, index=df.index), pd.Series(inv & (sun > 300), index=df.index)
+        share = down_s.groupby(day).transform("sum") / sunny_s.groupby(day).transform("sum").clip(lower=1)
+        g |= day.isin(set(day[down_s & (share >= 0.8)])).to_numpy()
     return g
 
 

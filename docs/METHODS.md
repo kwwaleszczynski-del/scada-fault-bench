@@ -1,10 +1,10 @@
 # Methods
 
-This page says what each method is given and what the adapter does. The authority on what a reference method does is the repository that owns it; the adapters only rename and rescale columns and turn the output into one non-negative score per row. Nothing is tuned for the benchmark. The table of methods with their descriptions is generated from the code in the README.
+This page says what each method is given and what the adapter does. The authority on what a reference method does is the repository that owns it; the adapters rename and rescale columns and turn the output into one non-negative score per row. Two things must be said plainly. First, `nbm_rc`, `nbm_gbm` and `power_curve_kpi` use *models* from their repositories (a thermal model, a power curve), not the alarm methods of those repositories; the alarm rule here is the common one of the benchmark. Second, nothing was tuned on the results, but the design was not blind to the fault models: the residual matrix of the simple baselines has roughly one residual per kind of fault, and `scada_qc` is run only on the channels that the fault models touch. The table of methods with their descriptions is generated from the code in the README.
 
 ## Interface
 
-`fit(train, meta)` gets a table in the `scada-schema` format (the training part of a split, which may contain gaps, real stops and real faults) and its metadata. `score(table, meta)` returns one number per row, in the order of the rows. Higher is more anomalous, `NaN` is "cannot be assessed" (PV at night, a turbine with no data). The harness sets the alarm threshold from held-out calibration weeks of the training part; a method with `fixed_threshold = True` is not calibrated (an alarm is a score above 0.5).
+`fit(train, meta)` gets a table in the `scada-schema` format (the training part of a split, which may contain gaps, real stops and real faults) and its metadata. `score(table, meta)` returns one number per row, in the order of the rows. Higher is more anomalous, `NaN` is "cannot be assessed" (PV at night, a turbine with no data). The harness sets the alarm threshold from held-out calibration weeks of the training part (the lowest threshold at which the merged alarms cover at most the same share of healthy rows for every method); a method with `fixed_threshold = True` is not calibrated (an alarm is a score above 0.5).
 
 ## Baselines
 
@@ -18,6 +18,8 @@ This page says what each method is given and what the adapter does. The authorit
 * `scada_qc`: the row-level findings of `scada_schema.qc` (flatline, spikes, out of range, units, power curve, wind direction, energy counter, energy against power) on the channels that the fault models touch.
 
 ## Reference methods from the portfolio
+
+A method is scored only on the fault types whose changed channel it reads (its *scope*, listed in the README): `nbm_rc` and `nbm_gbm` on temperature drift and unit jump (the gearbox oil is their target), `power_curve_kpi` on anemometer drift, derating, power loss, flatline and clock shift (power and wind speed), `pv_outage_expected` and `pv_outage_iforest` on string loss, shading, inverter outage, pyranometer drift, flatline and clock shift (power and irradiance). Their rows are not comparable with rows of methods that are scored on all types.
 
 | Name | Repository | Entry point | Adapter |
 |---|---|---|---|

@@ -7,9 +7,12 @@ are different turbines of one farm, but every dataset is a single table, so ther
 compare a turbine with its neighbours are missing and the methods work with what one turbine has.
 
 Protocol, the same as for injected faults: fit on the training section without the calibration weeks, set the threshold on
-the calibration weeks, score the prediction section. Truth: the rows of the labelled anomaly. Grey rows: rows whose status
-is not normal operation, and one day after the event. Everything else of a prediction section is healthy; the 10 normal
-datasets are pure false-alarm tests. Events are not graded by size (``level`` is 1).
+the calibration weeks, score the prediction section. Truth: *all* rows of the labelled anomaly with a power reading (the status
+of the turbine inside an event is typically "downtime", and that is part of the fault, so it is not grey there). Grey rows
+outside events: rows whose status is not normal operation, and one day after an event. Everything else of a prediction section is
+healthy; the 10 normal datasets are pure false-alarm tests. Events are not graded by size (``level`` is 1). The chance level is
+estimated by circular shifts of the alarms of the method over the prediction section (``N_SHIFTS`` shifts), which keeps their
+autocorrelation and removes any relation to the event; the result is reported as placebo recall next to recall.
 
 The dataset name in the results is ``care_A``; the ``fold`` of a block is the CARE ``event_id``.
 
@@ -27,9 +30,9 @@ import numpy as np
 import pandas as pd
 from scada_schema import read_parquet, write_parquet
 
-from scada_fault_bench.base import METHODS, calibrate
+from scada_fault_bench.base import METHODS, calibrate_budget
 from scada_fault_bench.data import CAL_PERIOD_DAYS, CAL_WEEK_DAYS, data_dir
-from scada_fault_bench.evaluate import evaluate
+from scada_fault_bench.evaluate import alarms_of, evaluate
 from scada_fault_bench.faults import TRUTH_COLUMNS
 from scada_fault_bench.features import step_minutes
 from scada_fault_bench.scenario import EVENT_TAIL_DAYS, GREY, NEG, POS, Scenario
@@ -40,6 +43,7 @@ __all__ = ["REAL_NAME", "care_events", "prepare_care", "run_care"]
 
 REAL_NAME = "care_A"
 FARM = "A"
+N_SHIFTS = 200
 
 
 def _paths(event_id: int, data: str | Path | None) -> tuple[Path, Path]:
@@ -85,8 +89,9 @@ def _scenario(df: pd.DataFrame, meta, ev: pd.DataFrame, event_id: int) -> Scenar
         inside = ((test["timestamp"] >= r.start) & (test["timestamp"] < r.end)).to_numpy()
         tail = ((test["timestamp"] >= r.end) & (test["timestamp"] < r.end + pd.Timedelta(days=EVENT_TAIL_DAYS))).to_numpy()
         labels[tail] = GREY
-        labels[inside & ~grey] = POS
-        labels[inside & grey] = GREY
+        no_power = test["p_ac"].isna().to_numpy()
+        labels[inside & ~no_power] = POS
+        labels[inside & no_power] = GREY
         rows.append({"fault_id": f"care_A-{event_id}", "type": "real_fault", "device_id": r.device_id, "level": 1, "magnitude": float("nan"), "unit": "",
                      "start": r.start, "end": r.end, "window_start": r.start, "window_end": r.end, "n_affected": int((labels[inside] == POS).sum()), "params": "{}"})
     truth = pd.DataFrame(rows, columns=TRUTH_COLUMNS)
@@ -124,10 +129,12 @@ def run_care(cfg, methods: list[str]) -> tuple[list[pd.DataFrame], list[pd.DataF
             try:
                 m = cls().fit(train_fit, meta)
                 s_cal = np.asarray(m.score(train_cal, meta), dtype="float64")
-                thr = calibrate(s_cal[~grey_cal], fixed=cls.fixed_threshold)
+                thr = calibrate_budget(s_cal, train_cal["device_id"].to_numpy(), train_cal["timestamp"].to_numpy(), grey_cal, step, fixed=cls.fixed_threshold)
                 rec["threshold"] = thr
                 s = np.asarray(m.score(sc.table, meta), dtype="float64")
-                sums, evs = evaluate(sc, s, thr, step)
+                alarms = alarms_of(sc, s, thr, step)
+                shifts = np.random.default_rng(e).integers(1, max(alarms.shape[1], 2), N_SHIFTS)
+                sums, evs = evaluate(sc, s, thr, step, cal_scores=s_cal[~grey_cal], placebo=[np.roll(alarms, int(k), axis=1) for k in shifts])
                 sums.insert(0, "seed", 0)
                 sums.insert(0, "ftype", sc.ftype)
                 sums.insert(0, "fold", e)

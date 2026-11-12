@@ -31,6 +31,12 @@ def tiny(tmp_path_factory):
     data.DATASETS.update(old)
 
 
+def shard(out, name, kind):
+    """The per-fold shard files of one dataset and kind as one frame."""
+    files = sorted((out / "shards").glob(f"{name}.f*.{kind}.parquet"))
+    return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+
+
 def run_tiny(root, out, **kw):
     cfg = RunConfig(out=out, data=root, folds=(0, 1), methods=("zscore", "rules", "cusum"), types=("flatline", "string_loss", "inverter_outage"), **kw)
     for name in ("syn_wind", "syn_pv"):
@@ -41,8 +47,8 @@ def run_tiny(root, out, **kw):
 def test_a_run_writes_shards_that_summarise_into_every_selection(tiny, tmp_path):
     out = run_tiny(tiny, tmp_path / "r1")
     shards = sorted(p.name for p in (out / "shards").iterdir())
-    assert "syn_wind.blocks.parquet" in shards and "syn_pv.truth.parquet" in shards and "syn_wind.runs.parquet" in shards
-    blocks = pd.read_parquet(out / "shards" / "syn_wind.blocks.parquet")
+    assert "syn_wind.f0.blocks.parquet" in shards and "syn_pv.f1.truth.parquet" in shards and "syn_wind.f1.runs.parquet" in shards
+    blocks = shard(out, "syn_wind", "blocks")
     assert set(blocks["method"]) == {"zscore", "rules", "cusum"}
     assert set(blocks["ftype"]) == {"null", "flatline"}  # string_loss and inverter_outage do not apply to wind
     assert set(blocks["fold"]) == {0, 1} and set(COLUMNS) <= set(blocks.columns)
@@ -62,19 +68,20 @@ def test_two_runs_give_identical_sums(tiny, tmp_path):
     a = run_tiny(tiny, tmp_path / "a")
     b = run_tiny(tiny, tmp_path / "b")
     for name in ("syn_wind", "syn_pv"):
-        x = pd.read_parquet(a / "shards" / f"{name}.blocks.parquet")
-        y = pd.read_parquet(b / "shards" / f"{name}.blocks.parquet")
+        x = shard(a, name, "blocks")
+        y = shard(b, name, "blocks")
         pd.testing.assert_frame_equal(x, y)
-        pd.testing.assert_frame_equal(pd.read_parquet(a / "shards" / f"{name}.truth.parquet"), pd.read_parquet(b / "shards" / f"{name}.truth.parquet"))
+        pd.testing.assert_frame_equal(shard(a, name, "truth"), shard(b, name, "truth"))
 
 
 def test_the_event_counts_follow_levels_and_repeats(tiny, tmp_path):
     out = run_tiny(tiny, tmp_path / "c")
-    tw = pd.read_parquet(out / "shards" / "syn_wind.truth.parquet")
-    tp = pd.read_parquet(out / "shards" / "syn_pv.truth.parquet")
+    tw = shard(out, "syn_wind", "truth")
+    tp = shard(out, "syn_pv", "truth")
     assert len(tw[(tw["type"] == "flatline") & (tw["fold"] == 0)]) <= 10 and set(tw["level"]) <= {1, 2, 3, 4, 5}
-    assert len(tp[(tp["type"] == "string_loss") & (tp["fold"] == 0)]) <= 5  # one event per level on a PV plant
-    ev = pd.read_parquet(out / "shards" / "syn_wind.events.parquet")
+    assert len(tp[(tp["type"] == "string_loss") & (tp["fold"] == 0)]) <= 5 * 2  # one event per level and seed on a PV plant; two seeds by default for PV, one for wind
+    assert set(tp["seed"]) == {0, 1} and set(tw["seed"]) == {0}
+    ev = shard(out, "syn_wind", "events")
     assert {"detected", "delay_h", "level"} <= set(ev.columns) and len(ev) > 0
 
 
@@ -101,7 +108,7 @@ def test_a_failing_method_is_recorded_and_does_not_stop_the_run(tiny, tmp_path, 
 
     monkeypatch.setattr(ZScore, "fit", boom)
     out = run_tiny(tiny, tmp_path / "e")
-    runs = pd.read_parquet(out / "shards" / "syn_wind.runs.parquet")
+    runs = shard(out, "syn_wind", "runs")
     assert runs.loc[runs["method"] == "zscore", "error"].str.contains("broken on purpose").all()
     assert (runs.loc[runs["method"] == "rules", "error"] == "").all()
     S = summarise(out, n_boot=20)
@@ -126,7 +133,7 @@ def test_cli_lists_injects_and_runs_a_plugin(tiny, tmp_path, capsys):
     res = tmp_path / "plug"
     assert cli.main(["run", "--datasets", "syn_wind", "--folds", "0", "--types", "flatline", "--methods", "my_method", "--plugin", "plugin_example:Mine", "--data", str(tiny), "--out", str(res)]) == 0
     assert "my_method" in METHODS
-    blocks = pd.read_parquet(res / "shards" / "syn_wind.blocks.parquet")
+    blocks = shard(res, "syn_wind", "blocks")
     assert set(blocks["method"]) == {"my_method"}
     assert cli.main(["summarise", "--out", str(res), "--n-boot", "20"]) == 0
     assert (res / "summary.json").exists()

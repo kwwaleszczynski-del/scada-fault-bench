@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+MIN_DELAY_EVENTS = 5  # a mean delay over fewer detected events is not shown
+
 __all__ = ["cell", "load_summary", "numbers", "table_datasets", "table_faults", "table_methods", "table_overall", "table_real", "table_types"]
 
 TYPE_TITLES = {
@@ -29,7 +31,7 @@ def load_summary(path: str | Path) -> dict:
 def cell(e: dict, key: str, nd: int = 2, ci: bool = True, scale: float = 1.0) -> str:
     """``value (lo-hi)`` of one metric of a summary entry, or ``n/a`` when it is undefined (no events, no alarms)."""
     m = e[key]
-    if m["value"] is None:
+    if m["value"] is None or (key == "delay_h" and e.get("n", {}).get("detected", MIN_DELAY_EVENTS) < MIN_DELAY_EVENTS):
         return "n/a"
     v = f"{m['value'] * scale:.{nd}f}"
     if not ci or m["lo"] is None or m["hi"] is None:
@@ -67,10 +69,10 @@ def numbers(S: dict) -> dict[str, str]:
         "n_levels": str(c["levels"]), "n_folds": str(len(c["folds"])), "n_boot": str(c["n_boot"]),
         "n_real_anomalies": str(real["anomalies"]), "n_real_normal": str(real["normal_datasets"]),
         "test_days_wind": str(c["test_days"]["wind"]), "test_days_pv": str(c["test_days"]["pv"]), "buffer_days": str(c["buffer_days"]),
-        "cal_pct": f"{100 * (1 - c['cal_quantile']):.1f}", "merge_gap_h": f"{c['merge_gap_hours']:g}", "min_alarm_h": f"{c['min_alarm_hours']:g}",
-        "tolerance_days": f"{c['tolerance_days']:g}", "guard_days": f"{c['guard_days']:g}", "min_affected_h": f"{c['min_affected_hours']:g}",
+        "budget_pct": f"{100 * c['alarm_budget']:g}", "block_weeks": str(c["block_weeks"]), "merge_gap_h": f"{c['merge_gap_hours']:g}", "min_alarm_h": f"{c['min_alarm_hours']:g}",
+        "guard_days": f"{c['guard_days']:g}", "min_affected_h": f"{c['min_affected_hours']:g}",
         "version": c["version"], "scada_schema_version": c["scada_schema"],
-        "seeds_pv": str(c["seeds"]),
+        "seeds_wind": str(c["seeds_wind"]), "seeds_pv": str(c["seeds_pv"]),
     }
     for prof in ("wind", "pv"):
         n[f"events_{prof}"] = f"{sum(e['n'] for e in ev if S['datasets_info'][e['dataset']]['profile'] == prof):,}"
@@ -95,17 +97,18 @@ def table_overall(S: dict, profile: str) -> str:
         if e is None:
             continue
         mi = S["methods"][m]
-        rows.append([f"{mi['title']} (`{m}`)", cell(e, "f1"), cell(e, "recall"), cell(e, "precision"), cell(e, "delay_h", 0), cell(e, "fa_h_per_year", 0), cell(e, "auroc"),
-                     cell(e, "ap")])
-    return _table(["Method", "F1", "Recall", "Precision", "Delay (h)", "False alarms (h/yr)", "AUROC", "AP"], rows)
+        name = f"{mi['title']} (`{m}`)" + (" *" if mi.get("scope") else "")
+        rows.append([name, cell(e, "recall_excess"), cell(e, "recall"), cell(e, "recall_placebo", ci=False), cell(e, "precision"), cell(e, "row_f1"),
+                     cell(e, "auroc"), cell(e, "ap"), cell(e, "delay_h", 0), cell(e, "fa_h_per_year", 0)])
+    return _table(["Method", "Excess recall", "Recall", "Chance", "Precision", "Row F1", "AUROC", "AP", "Delay (h)", "False alarms (h/yr)"], rows)
 
 
-def table_types(S: dict, profile: str, key: str = "recall") -> str:
+def table_types(S: dict, profile: str, key: str = "recall_excess") -> str:
     types = [t for t in S["order"]["types"] if profile in S["fault_types"][t]["profiles"]]
     ent = {(e["method"], e["type"]): e for e in S["types"] if e["profile"] == profile}
     rows = []
     for m in _methods(S, profile):
-        rows.append([f"`{m}`", *[cell(ent[(m, t)], key, ci=False) if (m, t) in ent else "n/a" for t in types]])
+        rows.append([f"`{m}`", *[cell(ent[(m, t)], key, ci=False) if (m, t) in ent else "-" for t in types]])
     return _table(["Method", *[title_of(t) for t in types]], rows)
 
 
@@ -116,8 +119,9 @@ def table_real(S: dict) -> str:
         e = ent.get(m)
         if e is None:
             continue
-        rows.append([f"{S['methods'][m]['title']} (`{m}`)", cell(e, "recall"), cell(e, "precision"), cell(e, "delay_h", 0), cell(e, "fa_h_per_year", 0), cell(e, "auroc"), cell(e, "ap")])
-    return _table(["Method", "Recall", "Precision", "Delay (h)", "False alarms (h/yr)", "AUROC", "AP"], rows)
+        rows.append([f"{S['methods'][m]['title']} (`{m}`)", cell(e, "recall_excess"), cell(e, "recall"), cell(e, "recall_placebo", ci=False), cell(e, "auroc"), cell(e, "ap"),
+                     cell(e, "delay_h", 0), cell(e, "fa_h_per_year", 0)])
+    return _table(["Method", "Excess recall", "Recall", "Chance", "AUROC", "AP", "Delay (h)", "False alarms (h/yr)"], rows)
 
 
 def table_faults(S: dict) -> str:
@@ -135,8 +139,9 @@ def table_methods(S: dict) -> str:
     for m in S["order"]["methods"]:
         mi = S["methods"][m]
         thr = "fixed" if mi["fixed_threshold"] else "calibrated"
-        rows.append([f"`{m}`", "+".join(mi["profiles"]), mi["family"], thr, mi["description"] + (f" Source: {mi['source']}." if mi["source"] else "")])
-    return _table(["Name", "Profile", "Family", "Threshold", "Description"], rows, ["l", "l", "l", "l", "l"])
+        scope = ", ".join(title_of(t) for t in mi["scope"]) if mi.get("scope") else "all"
+        rows.append([f"`{m}`", "+".join(mi["profiles"]), mi["family"], thr, scope, mi["description"] + (f" Source: {mi['source']}." if mi["source"] else "")])
+    return _table(["Name", "Profile", "Family", "Threshold", "Fault types scored", "Description"], rows, ["l", "l", "l", "l", "l", "l"])
 
 
 def table_datasets(S: dict) -> str:

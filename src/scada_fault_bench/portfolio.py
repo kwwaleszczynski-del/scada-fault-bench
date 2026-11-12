@@ -123,6 +123,7 @@ class NBMThermal(_NBM):
     title = "Thermal model (RC)"
     description = "wind-thermal-nbm RCModel: first-order thermal model of the gearbox oil temperature from load, rotor speed, nacelle and ambient temperature; the standardised residual is the score"
     source = "wind-thermal-nbm: wind_thermal_nbm.thermal.RCModel"
+    scope = ("thermal_drift", "unit_jump")  # the gearbox oil temperature is the only channel this model reads as a target
 
     def _model(self, refs):
         from wind_thermal_nbm.thermal import RCModel
@@ -136,6 +137,7 @@ class NBMGradientBoosting(_NBM):
     title = "Thermal model (GBM)"
     description = "wind-thermal-nbm GBMModel: gradient boosting on the same inputs and their trailing means (1-12 h) for the gearbox oil temperature; the standardised residual is the score"
     source = "wind-thermal-nbm: wind_thermal_nbm.ml.GBMModel"
+    scope = ("thermal_drift", "unit_jump")
 
     def _model(self, refs):
         from wind_thermal_nbm.ml import GBMModel
@@ -152,6 +154,7 @@ class PowerCurveKPI(Detector):
     profiles = ("wind",)
     description = "res-asset-kpi bin_power_curve per turbine on the training weeks; the standardised residual of power against the curve at the measured wind speed is the score"
     source = "res-asset-kpi: res_asset_kpi.wind.bin_power_curve, curve_power (the method of wind-power-curve-kelmarsh)"
+    scope = ("anemometer_drift", "derating", "power_loss", "flatline", "clock_shift")  # faults in power or wind speed
 
     @classmethod
     def available(cls):
@@ -347,6 +350,7 @@ class PVOutageExpected(_PVOutage):
     description = ("pv-outage-classifier detectors.score('expected'): shortfall of inverter power against a PVWatts-style model driven by the met station's irradiance and module "
                    "temperature, calibrated per bin on the table that is scored (as in that repository); shortfall only")
     source = "pv-outage-classifier: pv_outage.features.compute, pv_outage.detectors.score('expected')"
+    scope = ("string_loss", "shading", "inverter_outage", "pyranometer_drift", "flatline", "clock_shift")  # faults in power or irradiance
     method = "expected"
 
 
@@ -357,4 +361,5 @@ class PVOutageIForest(_PVOutage):
     description = ("pv-outage-classifier detectors.score('iforest'): Isolation Forest on that repository's step features (residuals, level, sun position, ...), fitted on the "
                    "table that is scored, as in that repository")
     source = "pv-outage-classifier: pv_outage.features.compute, pv_outage.detectors.score('iforest')"
+    scope = ("string_loss", "shading", "inverter_outage", "pyranometer_drift", "flatline", "clock_shift")
     method = "iforest"

@@ -23,17 +23,19 @@ README = ROOT / "README.md"
 
 
 def top_sentence(S: dict, profile: str) -> str:
-    """The methods whose F1 interval overlaps the interval of the highest F1: the honest reading of a ranking with intervals."""
-    ent = [e for e in S["overall"] if e["profile"] == profile and e["f1"]["value"] is not None]
+    """What the intervals allow to say: which methods have an excess recall whose interval stays above zero, and which have the highest AUROC."""
+    ent = [e for e in S["overall"] if e["profile"] == profile and e["recall_excess"]["value"] is not None]
     if not ent:
         return ""
-    best = max(ent, key=lambda e: e["f1"]["value"])
-    lo = best["f1"]["lo"] if best["f1"]["lo"] is not None else best["f1"]["value"]
-    near = [e["method"] for e in ent if (e["f1"]["hi"] if e["f1"]["hi"] is not None else e["f1"]["value"]) >= lo]
+    above = [e["method"] for e in ent if e["recall_excess"]["lo"] is not None and e["recall_excess"]["lo"] > 0]
+    auc = [e for e in ent if e["auroc"]["value"] is not None]
+    best = max(auc, key=lambda e: e["auroc"]["value"])
+    lo = best["auroc"]["lo"] if best["auroc"]["lo"] is not None else best["auroc"]["value"]
+    near = [e["method"] for e in auc if (e["auroc"]["hi"] if e["auroc"]["hi"] is not None else e["auroc"]["value"]) >= lo]
     names = ", ".join(f"`{m}`" for m in near)
-    if len(near) == len(ent):
-        return f"The F1 intervals of all methods overlap with the interval of the highest value (`{best['method']}`): {names}."
-    return f"The highest F1 is that of `{best['method']}`; the methods whose F1 interval overlaps its interval are {names}, so the data do not separate them."
+    ex = ", ".join(f"`{m}`" for m in above) if above else "none"
+    return (f"The excess recall has an interval above zero for: {ex}. The highest AUROC is that of `{best['method']}`; the methods whose AUROC interval overlaps its interval are {names}"
+            " (the intervals describe the sampling of weeks and events in this benchmark, so a method outside that list is not shown to be worse on other data, and one inside it is not shown to be equal).")
 
 
 def render(template: str, S: dict) -> str:

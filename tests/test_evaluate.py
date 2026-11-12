@@ -5,7 +5,7 @@ from conftest import window
 
 from scada_fault_bench.base import MERGE_GAP_HOURS, MIN_ALARM_HOURS, alarm_mask, calibrate
 from scada_fault_bench.data import DatasetSpec, make_split
-from scada_fault_bench.evaluate import COLUMNS, HIST_BINS, evaluate, hist_edges
+from scada_fault_bench.evaluate import COLUMNS, HIST_BINS, alarms_of, evaluate, hist_edges
 from scada_fault_bench.scenario import GREY, NEG, POS, group_ids, make_scenario
 from scada_fault_bench.stats import METRICS, bootstrap_metrics, metrics_from_sums
 
@@ -64,7 +64,7 @@ def test_a_perfect_score_detects_every_event_with_zero_delay_and_full_auc(wind_s
     m = {k: float(v[0]) for k, v in metrics_from_sums(t).items()}
     assert len(ev) == len(sc.truth) and ev["detected"].all()
     assert m["recall"] == 1.0 and m["precision"] == 1.0 and m["fa_h_per_year"] == 0.0 and m["auroc"] == 1.0
-    assert ev["delay_h"].max() <= 12  # an alarm may start only at the first affected row of the burst (merge gap fills the rest)
+    assert ev["delay_h"].max() == 0 and (ev["chance"] == 0).all()  # no placebo given; the alarm covers the first affected row
     assert m["row_recall"] > 0.5 and m["row_precision"] == 1.0
 
 
@@ -156,11 +156,11 @@ def test_window_helper_matches_table(wind):
     assert lo < hi
 
 
-def _naive(sc, score, thr, step_min, tol_days=1.0):
+def _naive(sc, score, thr, step_min, placebo=None):
     """The same rules written as plain loops over devices and rows, as a cross-check of the vectorised evaluation."""
     step = pd.Timedelta(minutes=step_min)
     n_steps = int(np.ceil((sc.t_hi - sc.t_lo) / step))
-    out = {"ev_n": 0, "ev_det": 0, "delay": 0.0, "al_tp": 0, "al_fp": 0, "al_ign": 0, "neg": 0, "fa": 0}
+    out = {"ev_n": 0, "ev_det": 0, "delay": 0.0, "chance": 0.0, "al_tp": 0, "al_fp": 0, "al_ign": 0, "neg": 0, "fa": 0}
     tab = sc.table.assign(score=score, label=sc.labels)
     for dev, g in tab.groupby("device_id"):
         s = np.full(n_steps, np.nan)
@@ -184,17 +184,18 @@ def _naive(sc, score, thr, step_min, tol_days=1.0):
             if flag[i:last + 1].sum() >= minlen:
                 alarm[i:last + 1] = True
             i = last + 1
-        wins = []
+        gi = sorted(tab["device_id"].unique()).index(dev)
         for r in sc.truth[sc.truth["device_id"] == dev].itertuples():
             t0 = int((r.start - sc.t_lo) // step)
             t1 = int(np.ceil((r.end - sc.t_lo) / step))
-            lo, hi = max(t0, 0), min(t1 + int(tol_days * 24 * 60 / step_min), n_steps)
-            wins.append((lo, hi))
+            rows = [k for k in range(t0, t1) if lab[k] == POS]
+            hits = [k for k in rows if alarm[k]]
             out["ev_n"] += 1
-            hit = np.flatnonzero(alarm[lo:hi])
-            if len(hit):
+            if hits:
                 out["ev_det"] += 1
-                out["delay"] += 0.0 if lo + hit[0] <= t0 else (lo + hit[0] - t0) * step_min / 60
+                out["delay"] += (hits[0] - t0) * step_min / 60
+            if placebo is not None:
+                out["chance"] += np.mean([any(p[gi, k] for k in rows) for p in placebo])
         k = 0
         while k < n_steps:
             if not alarm[k]:
@@ -203,7 +204,7 @@ def _naive(sc, score, thr, step_min, tol_days=1.0):
             m = k
             while m < n_steps and alarm[m]:
                 m += 1
-            if any(k < hi and m > lo for lo, hi in wins):
+            if (lab[k:m] == POS).any():
                 out["al_tp"] += 1
             elif (lab[k:m] == GREY).all():
                 out["al_ign"] += 1
@@ -216,17 +217,94 @@ def _naive(sc, score, thr, step_min, tol_days=1.0):
 
 
 def test_the_vectorised_evaluation_equals_a_plain_loop_implementation(wind_scenario):
-    sc, _ = wind_scenario
+    sc, split = wind_scenario
+    null = make_scenario(split, None, 0)
     rng = np.random.default_rng(5)
     for thr in (0.7, 1.3):
         score = rng.gamma(2.0, 0.5, len(sc.table)) + 2.0 * (sc.labels == POS) * (rng.random(len(sc.table)) < 0.4)
-        sums, ev = evaluate(sc, score, thr, 10.0)
-        want = _naive(sc, score, thr, 10.0)
-        got = sums[["ev_n", "ev_det", "ev_delay_h", "al_tp", "al_fp", "al_ign", "neg_rows", "fa_rows"]].sum()
+        s_null = rng.gamma(2.0, 0.5, len(null.table))
+        pl = [alarms_of(null, s_null, thr, 10.0)]
+        sums, ev = evaluate(sc, score, thr, 10.0, placebo=pl)
+        want = _naive(sc, score, thr, 10.0, pl)
+        got = sums[["ev_n", "ev_det", "ev_delay_h", "pl_det", "al_tp", "al_fp", "al_ign", "neg_rows", "fa_rows"]].sum()
         assert got["ev_n"] == want["ev_n"] and got["ev_det"] == want["ev_det"]
-        assert got["ev_delay_h"] == pytest.approx(want["delay"], abs=1e-6)
+        assert got["ev_delay_h"] == pytest.approx(want["delay"], abs=1e-6) and got["pl_det"] == pytest.approx(want["chance"])
         assert (got["al_tp"], got["al_fp"], got["al_ign"]) == (want["al_tp"], want["al_fp"], want["al_ign"])
         assert got["neg_rows"] == want["neg"] and got["fa_rows"] == want["fa"]
+
+
+def test_a_method_without_information_has_no_excess_recall_and_an_auc_of_one_half(wind_scenario):
+    """Random scores calibrated like a real method: recall equals the placebo recall up to sampling, AUROC is one half."""
+    sc, split = wind_scenario
+    null = make_scenario(split, None, 0)
+    rec, pla, auc = [], [], []
+    for k in range(60):
+        rng = np.random.default_rng(k)
+        cal = rng.random(20000)
+        thr = float(np.quantile(cal, 0.99))
+        s_null = rng.random(len(null.table))
+        s = rng.random(len(sc.table))
+        sums, _ = evaluate(sc, s, thr, 10.0, cal_scores=cal, placebo=[alarms_of(null, s_null, thr, 10.0)])
+        m = {k2: float(v[0]) for k2, v in metrics_from_sums(sums[COLUMNS].sum().to_numpy()).items()}
+        rec.append(m["recall"])
+        pla.append(m["recall_placebo"])
+        auc.append(m["auroc"])
+    assert abs(np.mean(rec) - np.mean(pla)) < 0.15
+    assert abs(np.mean(auc) - 0.5) < 0.03
+
+
+def test_the_placebo_of_a_perfect_method_is_what_the_untouched_alarms_hit(wind_scenario):
+    sc, split = wind_scenario
+    null = make_scenario(split, None, 0)
+    always = np.ones(len(null.table))
+    pl = [alarms_of(null, always, 0.5, 10.0)]  # alarms everywhere on the untouched block
+    sums, ev = evaluate(sc, np.zeros(len(sc.table)), 0.5, 10.0, placebo=pl)
+    assert sums["pl_det"].sum() == len(sc.truth) and sums["ev_det"].sum() == 0 and (ev["chance"] == 1).all()
+    sums, ev = evaluate(sc, np.zeros(len(sc.table)), 0.5, 10.0, placebo=[np.zeros_like(pl[0])])
+    assert sums["pl_det"].sum() == 0
+
+
+def test_the_calibrated_threshold_keeps_alarms_inside_the_budget_and_rules_keep_theirs():
+    from scada_fault_bench.base import ALARM_BUDGET, _segments, alarm_share, calibrate_budget
+
+    rng = np.random.default_rng(1)
+    n = 6000
+    t = pd.date_range("2019-01-01", periods=n, freq="10min", tz="UTC")
+    dev = np.array(["A"] * n)
+    s = np.abs(pd.Series(rng.normal(size=n)).rolling(12, min_periods=1).mean().to_numpy()) * 3
+    grey = np.zeros(n, dtype=bool)
+    thr = calibrate_budget(s, dev, t, grey, 10.0)
+    segs = _segments(dev, pd.DatetimeIndex(t).as_unit("ns").asi8, 600 * 10**9)
+    assert alarm_share(s, thr, segs, ~grey, 10.0) <= ALARM_BUDGET + 1e-12
+    assert alarm_share(s, thr * 0.9, segs, ~grey, 10.0) > alarm_share(s, thr, segs, ~grey, 10.0)
+    assert calibrate_budget(s, dev, t, grey, 10.0, fixed=True) == 0.5
+    assert calibrate_budget(np.full(n, np.nan), dev, t, grey, 10.0) == float("inf")
+    # a gap in time splits the series: no alarm is merged across it
+    t2 = t.delete(slice(3000, 3500))
+    assert len(_segments(np.array(["A"] * len(t2)), pd.DatetimeIndex(t2).as_unit("ns").asi8, 600 * 10**9)) == 2
+
+
+def test_the_rank_transform_is_monotone_and_saturates():
+    from scada_fault_bench.evaluate import T_MAX, rank_transform
+
+    cal = np.sort(np.random.default_rng(0).random(1000))
+    t = rank_transform(np.array([-1.0, 0.1, 0.5, 0.9, 0.999, 5.0, np.nan]), cal)
+    assert (np.diff(t[:6]) >= 0).all() and t[5] == T_MAX and t[6] == 0 and t[0] == 0
+
+
+def test_a_short_zero_power_hour_in_sun_is_not_grey_but_a_whole_down_day_is(pv):
+    from scada_fault_bench.scenario import grey_mask
+
+    df, meta = pv
+    d = df.copy()
+    inv = d["device_id"] == "INV1"
+    hour = inv & (d["timestamp"] >= "2017-04-10 18:00") & (d["timestamp"] < "2017-04-10 19:00")  # 11:00 local sun in the synthetic plant
+    day = inv & (d["timestamp"] >= "2017-04-20") & (d["timestamp"] < "2017-04-21")
+    d.loc[hour | day, "p_ac"] = 0.0
+    g = grey_mask(d, meta)
+    sun = d["timestamp"].map(d[d["device_id"] == "MET"].set_index("timestamp")["poa"]) > 300
+    assert not (g & hour & sun).any()
+    assert (g & day).sum() >= (day & sun).sum() > 0
 
 
 def test_positive_rows_are_never_grey_and_the_truth_starts_at_the_first_positive_row(pv):
@@ -243,3 +321,24 @@ def test_positive_rows_are_never_grey_and_the_truth_starts_at_the_first_positive
         t = sc.table.loc[rows, "timestamp"]
         assert t.min() == r.start and t.max() + pd.Timedelta(meta.interval) == r.end and len(t) == r.n_affected
     assert (sc.labels == POS).sum() == sc.truth["n_affected"].sum()
+
+
+def test_care_events_keep_their_downtime_rows_as_affected_and_grey_only_outside_events():
+    from scada_fault_bench.real import _scenario
+    from scada_fault_bench.synthetic import synthetic_wind
+
+    df, meta = synthetic_wind(n_turbines=1, days=60, seed=2)
+    df = df.copy()
+    df["x_train_test"] = np.where(df["timestamp"] < df["timestamp"].min() + pd.Timedelta(days=30), "train", "prediction")
+    df["iec_category"] = "full_performance"
+    start, end = pd.Timestamp("2019-02-10", tz="UTC"), pd.Timestamp("2019-02-17", tz="UTC")
+    inside = (df["timestamp"] >= start) & (df["timestamp"] < end)
+    df.loc[inside, "iec_category"] = "forced_outage"  # the status of a CARE event is typically downtime
+    df.loc[(df["timestamp"] >= "2019-02-25") & (df["timestamp"] < "2019-02-26"), "iec_category"] = "forced_outage"  # a real stop elsewhere
+    ev = pd.DataFrame({"device_id": ["T01"], "start": [start], "end": [end], "status": ["anomaly"]})
+    sc = _scenario(df, meta, ev, 7)
+    ts = sc.table["timestamp"]
+    assert (sc.labels[((ts >= start) & (ts < end)).to_numpy()] == POS).all()
+    assert (sc.labels[((ts >= "2019-02-25") & (ts < "2019-02-26")).to_numpy()] == GREY).all()
+    assert (sc.labels[((ts >= end) & (ts < end + pd.Timedelta(days=1))).to_numpy()] == GREY).all()
+    assert sc.truth["n_affected"].iloc[0] == 7 * 144 and sc.ftype == "real_fault"

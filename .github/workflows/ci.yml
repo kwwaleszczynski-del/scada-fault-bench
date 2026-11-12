@@ -22,7 +22,7 @@ jobs:
       - run: pytest -q -m "not portfolio and not data"
 
   portfolio-methods:
-    # the reference methods from other repositories of the portfolio, installed from GitHub (none is on PyPI)
+    # the reference methods from other repositories of the portfolio, installed from GitHub (the three that are not on PyPI)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
