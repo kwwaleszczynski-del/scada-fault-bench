@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
-  "published_on_pypi": false,
-  "doi_concept": null,
-  "doi_version": null,
+  "published_on_pypi": true,
+  "doi_concept": "10.5281/zenodo.24164281",
+  "doi_version": "10.5281/zenodo.24164282",
   "date_released": "2026-11-12"
 }

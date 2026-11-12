@@ -3,7 +3,7 @@ message: "If you use this software, please cite it using the metadata below."
 type: software
 title: "scada-fault-bench: an open benchmark for fault detection in wind and PV SCADA data"
 abstract: >-
-  Faults with a known time, device and size are injected into clean stretches of open wind and PV datasets in the scada-schema
+  Faults with a known time, device and size are injected into test blocks of open wind and PV datasets in the scada-schema
   format; detectors are scored by one evaluation (events, delay, false alarms, sensitivity to fault size) with block-bootstrap
   confidence intervals, and on real labelled faults of CARE to Compare. The injected faults are a signal-level model; results
   describe this benchmark only.
@@ -11,6 +11,14 @@ authors:
   - family-names: "Waleszczyński"
     given-names: "Konrad"
 version: 0.1.0
+doi: 10.5281/zenodo.24164281
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24164281
+    description: "All versions (concept DOI)"
+  - type: doi
+    value: 10.5281/zenodo.24164282
+    description: "Version 0.1.0"
 date-released: "2026-11-12"
 license: MIT
 repository-code: "https://github.com/kwwaleszczynski-del/scada-fault-bench"
